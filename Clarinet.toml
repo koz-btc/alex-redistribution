@@ -13,9 +13,17 @@ depends_on = []
 path = "contracts/sip010-token.clar"
 depends_on = ["sip010-ft-trait"]
 
+[contracts.swap-helper-trait]
+path = "contracts/swap-helper-trait.clar"
+depends_on = ["sip010-ft-trait"]
+
+[contracts.swap-helper]
+path = "contracts/swap-helper.clar"
+depends_on = ["swap-helper-trait", "sip010-ft-trait"]
+
 [contracts.alex-swapper]
 path = "contracts/alex-swapper.clar"
-depends_on = ["sip010-ft-trait"]
+depends_on = ["sip010-ft-trait", "swap-helper-trait"]
 
 [repl]
 costs_version = 2

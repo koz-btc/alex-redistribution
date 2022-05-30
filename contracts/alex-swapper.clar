@@ -15,7 +15,7 @@
 
 ;; Accounts can withdraw their deposited ALEX at any time, opting out of the redistribution. This
 ;; is to allow them to get out if the quota needed for an exchange is not met. Only the original 
-;; depositor can withdraw their ALEX, the contract owner or any other principal cannot withdraw. 
+;; depositor can withdraw their ALEX. The contract owner or any other principal cannot withdraw. 
 
 ;; Any principal can call the redistribute function at any time, which will call the AlexGo swap contract
 ;; to swap ALEX to STX. If the swap succeeds, the obtained STX will be redistributed to each depositor 
@@ -32,6 +32,7 @@
 ;; The contract owner can withdraw the collected STX at any time.
 
 (use-trait ft-trait .sip010-ft-trait.sip010-ft-trait)
+(use-trait swap-helper-trait .swap-helper-trait.swap-helper-trait)
 
 ;; constants
 ;;
@@ -41,17 +42,30 @@
 (define-constant err-invalid-fee (err u101))
 (define-constant err-invalid-amount (err u102))
 (define-constant err-unknown-depositor (err u103))
+(define-constant err-can-only-be-called-once (err u104))
+(define-constant err-there-is-no-balance (err u105))
 
 ;; data maps and vars
 ;;
-(define-data-var deposited-balance uint u0)
+(define-data-var total-deposited-balance uint u0)
 (define-data-var current-stx-fee uint u500000) ;; fee value set in mSTX
-(define-map deposits principal { amount: uint, fee: uint })
+(define-map deposits principal { amount: uint, fee: uint, swapped-amount: uint })
+(define-data-var depositors (list 100 principal) (list))
+
+;; principals needed to call swap-helper method
+(define-map whitelisted-swap-helper-contracts principal bool)
+(define-map whitelisted-token-contracts principal bool)
+
 
 ;; private functions
 ;;
 (define-private (transfer-ft (token-contract <ft-trait>) (amount uint) (sender principal) (recipient principal))
-	(contract-call? token-contract transfer amount sender recipient none)
+    (contract-call? token-contract transfer amount sender recipient none)
+)
+
+;; Get the deposited balance of any principal.
+(define-private (get-deposited-balance-of (depositor principal))
+    (default-to u0 (get amount (map-get? deposits depositor)))
 )
 
 ;; public functions
@@ -68,26 +82,43 @@
     )
 )
 
-;; Get the deposited balance of any principal.
-(define-private (get-deposited-balance-of (depositor principal))
-    (default-to u0 (get amount (map-get? deposits depositor)))
+;; @desc Adds valid contract principal to execute swaps.
+(define-public (whitelist-swap-helper-contract (contract-principal principal) (allowed bool))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-not-contract-owner)
+        (map-set whitelisted-swap-helper-contracts contract-principal allowed)
+        (ok true)
+    )
 )
 
-;; Public read only function to get the balance of the tx sender.
+;; @desc Adds valid token addresses to swap coins
+(define-public (whitelist-token-contract (contract-principal principal) (allowed bool))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-not-contract-owner)
+        (map-set whitelisted-token-contracts contract-principal allowed)
+        (ok true)
+    )
+)
+
+;; @desc Public read only function to get the balance of the tx sender.
 (define-read-only (get-deposited-balance)
     (ok (get-deposited-balance-of tx-sender))
 )
 
-;; deposit token
+;; @desc Deposit token. Allows users to send tokens to the smart contract. 
 ;; TODO: assert address deposit token contract principal is equal to the whitelisted deposit token
 ;; TODO: will probably need to add a list of depositors, to be able to interate at redistribution time.
+;; TODO: Include test overflowing the list of depositors
 (define-public (deposit (deposit-token-contract <ft-trait>) (amount uint))
     (begin 
         (asserts! (> amount u0) err-invalid-amount)
         (try! (transfer-ft deposit-token-contract amount tx-sender (as-contract tx-sender)))
         (map-set deposits tx-sender (tuple (amount (+ (get-deposited-balance-of tx-sender) amount)) 
-                                             (fee (var-get current-stx-fee))))
-        (var-set deposited-balance (+ (var-get deposited-balance) amount))
+                                           (fee (var-get current-stx-fee))
+                                           (swapped-amount u0)))
+        (var-set total-deposited-balance (+ (var-get total-deposited-balance) amount))
+        (var-set depositors (unwrap-panic (as-max-len? (append (var-get depositors) tx-sender) u100)))
+
         (ok true)
     )
 )
@@ -107,5 +138,58 @@
         (map-delete deposits tx-sender)
         (try! (as-contract (transfer-ft deposit-token-contract amount tx-sender depositor)))
         (ok true)
+    )
+)
+
+;; @desc Performs swap, exchanges all the deposited tokens and assign proportionally the received tokens to each of the depositors.
+;; TODO: Testing needs to include calling this two times and having deposits for the same depositor in between calls
+(define-public (redistribute (swap-trait <swap-helper-trait>) (token-x-trait <ft-trait>) (token-y-trait <ft-trait>) (amount uint) (min-dy (optional uint)))
+    (begin
+        (asserts! (> (var-get total-deposited-balance) u0) err-there-is-no-balance)
+        ;; It should probably get the min-dy first.
+        (let ((ustx-result
+                (contract-call? swap-trait swap-helper
+                    token-x-trait
+                    token-y-trait
+                    (var-get total-deposited-balance)
+                    min-dy)))
+            (match ustx-result
+                ustx (redistribute-swapped-tokens ustx)
+                error (err error)))
+    )
+)
+
+;; @desc Calc the proportion of the total-exchanged, based on the amout and total deposited (depositor-amount * totals-exchanged / totals-deposited)
+(define-read-only (get-proportional-deposit 
+        (deposit-info { amount: uint, fee: uint, swapped-amount: uint })
+        (totals { deposited: uint, swapped: uint}))
+    (let (
+        (proportional-swapped-amount (/ 
+                                            (* (get amount deposit-info) (get swapped totals))
+                                            (get deposited totals)))
+        (accumulated-swapped-amount (+ (get swapped-amount deposit-info) proportional-swapped-amount))
+    )
+    accumulated-swapped-amount)
+)
+
+;; @desc Iterator function, for each depositor it:
+;; Gets deposit information for depositor (uses a blank default if not found)
+;; Calls private function to calc the proportional value based on the swapped value and the total deposited.
+;; Updates the depositor info with the new exchanged amount and reset deposited amount
+(define-private (assign-proportional (depositor principal) (totals { deposited: uint, swapped: uint}))
+    (let (
+        (deposit-info (default-to { amount: u0, fee: u0, swapped-amount: u0 } (map-get? deposits depositor)))
+        (accumulated-swapped-amount (get-proportional-deposit deposit-info totals))
+        )
+        (map-set deposits depositor (merge {amount: 0, swapped-amount: accumulated-swapped-amount} deposit-info))
+        (tuple (deposited (get deposited totals)) (swapped (get swapped totals)))
+    )
+)
+
+;; @desc Iterate over list of depositors and update deposit info on the depositors map. Clears the deposited amount and sets the proportional swapped amount.
+(define-private (redistribute-swapped-tokens (ustx uint))
+    (begin
+        (fold assign-proportional (var-get depositors) (tuple (deposited (var-get total-deposited-balance)) (swapped ustx)))
+        (ok ustx)
     )
 )
