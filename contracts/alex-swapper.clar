@@ -1,5 +1,7 @@
 
 ;; alex-swapper
+;; TODO: Rename to alex-redistribution
+
 ;; Allows to trustfully swap ALEX tokens for STX.
 ;; The AlexGo swap has a bug that doesn't allow to swap tokens if the results of the exchange
 ;; is lower than 15 STX. The objective of this contract is to accumulate STX tokens from different
