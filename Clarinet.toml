@@ -4,9 +4,18 @@ authors = []
 description = ""
 telemetry = false
 requirements = []
+
+[contracts.sip010-ft-trait]
+path = "contracts/sip010-ft-trait.clar"
+depends_on = []
+
+[contracts.sip010-token]
+path = "contracts/sip010-token.clar"
+depends_on = ["sip010-ft-trait"]
+
 [contracts.alex-swapper]
 path = "contracts/alex-swapper.clar"
-depends_on = []
+depends_on = ["sip010-ft-trait"]
 
 [repl]
 costs_version = 2
