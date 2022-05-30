@@ -109,8 +109,8 @@
 
 ;; @desc Deposit token. Allows users to send tokens to the smart contract. 
 ;; TODO: assert address deposit token contract principal is equal to the whitelisted deposit token
-;; TODO: will probably need to add a list of depositors, to be able to interate at redistribution time.
-;; TODO: Include test overflowing the list of depositors
+;; TODO: Test overflowing the list of depositors
+;; TODO: If the same person deposits more than once, it should be listed just once
 (define-public (deposit (deposit-token-contract <ft-trait>) (amount uint))
     (begin 
         (asserts! (> amount u0) err-invalid-amount)
@@ -131,6 +131,7 @@
 ;; Remove deposit from map
 ;; TODO: Remove depositor from list (list not really implemented yet)
 ;; TODO: Check deposit-token-contract from whitelisted list
+;; TODO: Include test for multiple deposits
 (define-public (withdraw (deposit-token-contract <ft-trait>))
     (let (
         (deposit-info (unwrap! (map-get? deposits tx-sender) err-unknown-depositor))
