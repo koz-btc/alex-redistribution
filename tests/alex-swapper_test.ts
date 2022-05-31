@@ -2,7 +2,7 @@
 import { Clarinet, Tx, Chain, Account, types } from 'https://deno.land/x/clarinet@v0.31.0/index.ts';
 import { assertEquals } from 'https://deno.land/std@0.90.0/testing/asserts.ts';
 
-import { dummyAccounts } from './helpers/dummy-accounts.ts';
+import { seedAccounts } from './helpers/seed-accounts.ts';
 
 const contractName = 'alex-swapper';
 const defaultDepositAssetContract = 'sip010-token';
@@ -18,6 +18,21 @@ function mintFt({ chain, deployer, amount, recipientAddress, depositAssetContrac
         mintFtTx({ deployer, depositAssetContract, amount, recipientAddress })
 	]);
 	block.receipts[0].result.expectOk();
+	const ftMintEvent = block.receipts[0].events[0].ft_mint_event;
+	const [depositAssetContractPrincipal, depositAssetId] = ftMintEvent.asset_identifier.split('::');
+	return { depositAssetContract: depositAssetContractPrincipal, depositAssetId, block };
+}
+
+function mintToSeedAccounts({ chain, deployer, times }: { chain: Chain, deployer: Account, times: number }) {
+    let mintTxs:Tx[] = [];
+    for(var i = 0; i < times; i++) {
+        let recipientAddress = seedAccounts[i].keyInfo.address;
+        let tx = mintFtTx({ deployer, recipientAddress, amount: 80 });
+        mintTxs.push(tx);
+    }
+    let block = chain.mineBlock(mintTxs);
+    block.receipts.forEach(e => { e.result.expectOk() });
+
 	const ftMintEvent = block.receipts[0].events[0].ft_mint_event;
 	const [depositAssetContractPrincipal, depositAssetId] = ftMintEvent.asset_identifier.split('::');
 	return { depositAssetContract: depositAssetContractPrincipal, depositAssetId, block };
@@ -100,33 +115,46 @@ Clarinet.test({
     async fn(chain: Chain, accounts: Map<string, Account>) {
 		const deployer = accounts.get('deployer')!;
 
-        // generate 100 different accounts and mint some tokens to each
+        // mint tokens to seed accounts
         let times = 100;
-        let mintTxs:Tx[] = [];
-        for(var i = 0; i < times; i++) {
-            let recipientAddress = dummyAccounts[i].keyInfo.address;
-            let tx = mintFtTx({ deployer, recipientAddress, amount: 100 });
-            mintTxs.push(tx);
-        }
-        let block0 = chain.mineBlock(mintTxs);
-        block0.receipts.forEach(e => { e.result.expectOk() });
-
-        const ftMintEvent = block0.receipts[0].events[0].ft_mint_event;
-        const [depositAssetContractPrincipal, depositAssetId] = ftMintEvent.asset_identifier.split('::');
+        let { depositAssetContract } = mintToSeedAccounts({ chain, deployer, times });
 
         // generate 100 deposits from different accounts
         let depositTxs:Tx[] = [];
         for(var i = 0; i < times; i++) {
-            let recipientAddress = dummyAccounts[i].keyInfo.address;
-            let tx = Tx.contractCall(contractName, 'deposit', [types.principal(depositAssetContractPrincipal), types.uint(50)], recipientAddress);
+            let recipientAddress = seedAccounts[i].keyInfo.address;
+            let tx = Tx.contractCall(contractName, 'deposit', [types.principal(depositAssetContract), types.uint(50)], recipientAddress);
             depositTxs.push(tx);
         }
-        let block1 = chain.mineBlock(depositTxs);
-        block1.receipts.forEach(e => { e.result.expectOk() });
+        let block = chain.mineBlock(depositTxs);
+        block.receipts.forEach(e => { e.result.expectOk() });
     },
 
 });
 
-// TODO `deposit` - Can accept more than 100 deposits from 100 different accounts
+Clarinet.test({
+    name: "`deposit` - Can accept more than 100 deposits from just 100 different accounts",
+    async fn(chain: Chain, accounts: Map<string, Account>) {
+		const deployer = accounts.get('deployer')!;
+
+        // mint tokens to seed accounts
+        let times = 100;
+        let { depositAssetContract } = mintToSeedAccounts({ chain, deployer, times });
+
+        // generate 2 deposits on each account
+        let depositTxs:Tx[] = [];
+        for(var i = 0; i < times; i++) {
+            let recipientAddress = seedAccounts[i].keyInfo.address;
+            let tx1 = Tx.contractCall(contractName, 'deposit', [types.principal(depositAssetContract), types.uint(10)], recipientAddress);
+            let tx2 = Tx.contractCall(contractName, 'deposit', [types.principal(depositAssetContract), types.uint(20)], recipientAddress);
+            depositTxs.push(tx1);
+            depositTxs.push(tx2);
+        }
+        let block = chain.mineBlock(depositTxs);
+        block.receipts.forEach(e => { e.result.expectOk() });
+    },
+
+});
+
 
 // TODO `deposit` - Cannot accept deposits from more than 100 different accounts

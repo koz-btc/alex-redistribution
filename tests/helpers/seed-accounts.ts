@@ -1,4 +1,4 @@
-export const dummyAccounts = [
+export const seedAccounts = [
     {
       "mnemonic": "month suffer spike iron slender destroy rule degree include auto economy vivid consider fat stand this moon absorb tribe auction rare solar olive course",
       "keyInfo": {

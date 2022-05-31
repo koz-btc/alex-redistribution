@@ -46,6 +46,7 @@
 (define-constant err-unknown-depositor (err u103))
 (define-constant err-can-only-be-called-once (err u104))
 (define-constant err-there-is-no-balance (err u105))
+(define-constant err-too-many-depositors (err u105))
 
 ;; data maps and vars
 ;;
@@ -107,10 +108,24 @@
     (ok (get-deposited-balance-of tx-sender))
 )
 
+
+;; @desc Adds a new depositor to the list if is not included. Check limits and return custom error before adding it.
+(define-private (depositors-list-with-new-sender (new-depositor principal))
+    (let (
+        (depositors-list (var-get depositors))
+        )
+        (ok (if (is-none (index-of depositors-list new-depositor))
+            (unwrap! (as-max-len? (append depositors-list tx-sender) u100) err-too-many-depositors)
+            depositors-list
+            )
+    )
+
+    )
+)
+
 ;; @desc Deposit token. Allows users to send tokens to the smart contract. 
 ;; TODO: assert address deposit token contract principal is equal to the whitelisted deposit token
 ;; TODO: Test overflowing the list of depositors
-;; TODO: If the same person deposits more than once, it should be listed just once
 (define-public (deposit (deposit-token-contract <ft-trait>) (amount uint))
     (begin 
         (asserts! (> amount u0) err-invalid-amount)
@@ -119,7 +134,7 @@
                                            (fee (var-get current-stx-fee))
                                            (swapped-amount u0)))
         (var-set total-deposited-balance (+ (var-get total-deposited-balance) amount))
-        (var-set depositors (unwrap-panic (as-max-len? (append (var-get depositors) tx-sender) u100)))
+        (var-set depositors (unwrap-panic (depositors-list-with-new-sender tx-sender)))
 
         (ok true)
     )
