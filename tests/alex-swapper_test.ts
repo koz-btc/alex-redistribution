@@ -40,6 +40,16 @@ function mintToSeedAccounts({ chain, deployer, times = maxNumberOfDepositors, am
 	return { depositAssetContractPrincipal, depositAssetId, block };
 }
 
+function mintAndDeposit({ chain, deployer, recipient, depositAssetContract = defaultDepositAssetContract, mint = 100, deposit = 100 }: { chain: Chain, deployer: Account, recipient: Account, mint?: number, deposit?: number, depositAssetContract?: string }) {
+    const { depositAssetContractPrincipal, depositAssetId } = mintFt({ chain, deployer, depositAssetContract, recipientAddress: recipient.address, amount: mint });
+
+    let block = chain.mineBlock([
+         Tx.contractCall(contractName, 'deposit', [types.principal(depositAssetContractPrincipal), types.uint(deposit)], recipient.address)
+    ]);
+    block.receipts[0].result.expectOk().expectBool(true);
+	return { depositAssetContractPrincipal, depositAssetId };
+}
+
 // ******************
 // change-current-fee
 // ******************
@@ -182,4 +192,67 @@ Clarinet.test({
         block.receipts.slice(0, maxNumberOfDepositors).forEach(e => { e.result.expectOk() });
         block.receipts[maxNumberOfDepositors].result.expectErr().expectUint(105); // err too many depositors
     },
+});
+
+// *********************
+// get-deposited-balance
+// *********************
+Clarinet.test({
+    name: "`get-deposited-balance` - returns balance of deposited tokens",
+    async fn(chain: Chain, accounts: Map<string, Account>) {
+		const deployer = accounts.get('deployer')!;
+		const walletA = accounts.get('wallet_1')!;
+
+        mintAndDeposit({ chain, deployer, recipient: walletA, mint: 100, deposit: 50 });
+
+        const parametersFromChain = chain.callReadOnlyFn(
+            contractName,
+            "get-deposited-balance",
+            [],
+            walletA.address
+        );
+        parametersFromChain.result.expectOk().expectUint(50);
+    }
+});
+
+Clarinet.test({
+    name: "`get-deposited-balance` - principals with no deposits should have no balance",
+    async fn(chain: Chain, accounts: Map<string, Account>) {
+		const deployer = accounts.get('deployer')!;
+		const walletA = accounts.get('wallet_1')!;
+
+        mintAndDeposit({ chain, deployer, recipient: walletA, mint: 100, deposit: 50 });
+
+        const parametersFromChain = chain.callReadOnlyFn(
+            contractName,
+            "get-deposited-balance",
+            [],
+            deployer.address
+        );
+        parametersFromChain.result.expectOk().expectUint(0);
+    }
+});
+
+
+Clarinet.test({
+    name: "`get-deposited-balance` - should return accumulated balance from multiple deposits",
+    async fn(chain: Chain, accounts: Map<string, Account>) {
+		const deployer = accounts.get('deployer')!;
+		const walletA = accounts.get('wallet_1')!;
+
+        let { depositAssetContractPrincipal } = mintAndDeposit({ chain, deployer, recipient: walletA, mint: 100, deposit: 50 });
+
+        let block = chain.mineBlock([
+            Tx.contractCall(contractName, 'deposit', [types.principal(depositAssetContractPrincipal), types.uint(20)], walletA.address)
+        ]);
+        block.receipts[0].result.expectOk().expectBool(true);
+
+        const parametersFromChain = chain.callReadOnlyFn(
+            contractName,
+            "get-deposited-balance",
+            [],
+            walletA.address
+        );
+        parametersFromChain.result.expectOk().expectUint(70);
+    }
 });
