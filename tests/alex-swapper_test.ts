@@ -22,7 +22,7 @@ function mintFt({ chain, deployer, amount, recipientAddress, depositAssetContrac
 	block.receipts[0].result.expectOk();
 	const ftMintEvent = block.receipts[0].events[0].ft_mint_event;
 	const [depositAssetContractPrincipal, depositAssetId] = ftMintEvent.asset_identifier.split('::');
-	return { depositAssetContract: depositAssetContractPrincipal, depositAssetId, block };
+	return { depositAssetContractPrincipal, depositAssetId, block };
 }
 
 function mintToSeedAccounts({ chain, deployer, times = maxNumberOfDepositors, amount = 80 }: { chain: Chain, deployer: Account, times?: number, amount?: number }) {
@@ -33,12 +33,11 @@ function mintToSeedAccounts({ chain, deployer, times = maxNumberOfDepositors, am
         mintTxs.push(tx);
     }
     let block = chain.mineBlock(mintTxs);
-    console.log(`minted ${times} accounts for ${amount} each.`)
     block.receipts.forEach(e => { e.result.expectOk() });
 
 	const ftMintEvent = block.receipts[0].events[0].ft_mint_event;
 	const [depositAssetContractPrincipal, depositAssetId] = ftMintEvent.asset_identifier.split('::');
-	return { depositAssetContract: depositAssetContractPrincipal, depositAssetId, block };
+	return { depositAssetContractPrincipal, depositAssetId, block };
 }
 
 // ******************
@@ -88,11 +87,11 @@ Clarinet.test({
     async fn(chain: Chain, accounts: Map<string, Account>) {
 		const deployer = accounts.get('deployer')!;
 		const wallet1 = accounts.get('wallet_1')!;
-		const { depositAssetContract, depositAssetId } = mintFt({ chain, deployer, recipientAddress: wallet1.address, amount: 100 });
+		const { depositAssetContractPrincipal, depositAssetId } = mintFt({ chain, deployer, recipientAddress: wallet1.address, amount: 100 });
 
         const depositAmount = 50;
         let block = chain.mineBlock([
-             Tx.contractCall(contractName, 'deposit', [types.principal(depositAssetContract), types.uint(depositAmount)], wallet1.address)
+             Tx.contractCall(contractName, 'deposit', [types.principal(depositAssetContractPrincipal), types.uint(depositAmount)], wallet1.address)
         ]);
         block.receipts[0].result.expectOk().expectBool(true);
         block.receipts[0].events.expectFungibleTokenTransferEvent(depositAmount, wallet1.address, contractPrincipal(deployer), depositAssetId);
@@ -104,10 +103,10 @@ Clarinet.test({
     async fn(chain: Chain, accounts: Map<string, Account>) {
 		const deployer = accounts.get('deployer')!;
 		const wallet1 = accounts.get('wallet_1')!;
-		const { depositAssetContract } = mintFt({ chain, deployer, recipientAddress: wallet1.address, amount: 100 });
+		const { depositAssetContractPrincipal } = mintFt({ chain, deployer, recipientAddress: wallet1.address, amount: 100 });
 
         let block = chain.mineBlock([
-             Tx.contractCall(contractName, 'deposit', [types.principal(depositAssetContract), types.uint(0)], wallet1.address)
+             Tx.contractCall(contractName, 'deposit', [types.principal(depositAssetContractPrincipal), types.uint(0)], wallet1.address)
         ]);
         block.receipts[0].result.expectErr().expectUint(102); // err invalid amount
     },
@@ -120,13 +119,13 @@ Clarinet.test({
 
         // mint tokens to seed accounts
         let times = maxNumberOfDepositors;
-        let { depositAssetContract } = mintToSeedAccounts({ chain, deployer, times });
+        let { depositAssetContractPrincipal } = mintToSeedAccounts({ chain, deployer, times });
 
         // generate 100 deposits from different accounts
         let depositTxs:Tx[] = [];
         for(var i = 0; i < times; i++) {
             let recipientAddress = seedAccounts[i].keyInfo.address;
-            let tx = Tx.contractCall(contractName, 'deposit', [types.principal(depositAssetContract), types.uint(50)], recipientAddress);
+            let tx = Tx.contractCall(contractName, 'deposit', [types.principal(depositAssetContractPrincipal), types.uint(50)], recipientAddress);
             depositTxs.push(tx);
         }
         let block = chain.mineBlock(depositTxs);
@@ -142,14 +141,14 @@ Clarinet.test({
 
         // mint tokens to seed accounts
         let times = maxNumberOfDepositors;
-        let { depositAssetContract } = mintToSeedAccounts({ chain, deployer, times });
+        let { depositAssetContractPrincipal } = mintToSeedAccounts({ chain, deployer, times });
 
         // generate 2 deposits on each account
         let depositTxs:Tx[] = [];
         for(var i = 0; i < times; i++) {
             let recipientAddress = seedAccounts[i].keyInfo.address;
-            let tx1 = Tx.contractCall(contractName, 'deposit', [types.principal(depositAssetContract), types.uint(10)], recipientAddress);
-            let tx2 = Tx.contractCall(contractName, 'deposit', [types.principal(depositAssetContract), types.uint(20)], recipientAddress);
+            let tx1 = Tx.contractCall(contractName, 'deposit', [types.principal(depositAssetContractPrincipal), types.uint(10)], recipientAddress);
+            let tx2 = Tx.contractCall(contractName, 'deposit', [types.principal(depositAssetContractPrincipal), types.uint(20)], recipientAddress);
             depositTxs.push(tx1);
             depositTxs.push(tx2);
         }
@@ -166,13 +165,13 @@ Clarinet.test({
 
         // mint tokens to seed accounts
         let times = maxNumberOfDepositors + 1;
-        let { depositAssetContract } = mintToSeedAccounts({ chain, deployer, times });
+        let { depositAssetContractPrincipal } = mintToSeedAccounts({ chain, deployer, times });
 
         // generate 100 deposits from different accounts
         let depositTxs:Tx[] = [];
         for(var i = 0; i < times; i++) {
             let recipientAddress = seedAccounts[i].keyInfo.address;
-            let tx = Tx.contractCall(contractName, 'deposit', [types.principal(depositAssetContract), types.uint(50)], recipientAddress);
+            let tx = Tx.contractCall(contractName, 'deposit', [types.principal(depositAssetContractPrincipal), types.uint(50)], recipientAddress);
             depositTxs.push(tx);
         }
         let block = chain.mineBlock(depositTxs);

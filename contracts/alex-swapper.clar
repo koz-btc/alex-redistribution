@@ -128,7 +128,6 @@
 
 ;; @desc Deposit token. Allows users to send tokens to the smart contract. 
 ;; TODO: assert address deposit token contract principal is equal to the whitelisted deposit token
-;; TODO: Test overflowing the list of depositors
 (define-public (deposit (deposit-token-contract <ft-trait>) (amount uint))
     (begin 
         (asserts! (> amount u0) err-invalid-amount)
