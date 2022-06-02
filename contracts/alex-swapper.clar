@@ -53,7 +53,7 @@
 (define-data-var total-deposited-balance uint u0)
 (define-data-var current-stx-fee uint u500000) ;; fee value set in mSTX
 (define-map deposits principal { amount: uint, fee: uint, swapped-amount: uint })
-(define-data-var depositors (list 100 principal) (list))
+(define-data-var depositors (list 50 principal) (list))
 
 ;; principals needed to call swap-helper method
 (define-map whitelisted-swap-helper-contracts principal bool)
@@ -108,20 +108,23 @@
     (ok (get-deposited-balance-of tx-sender))
 )
 
-
 ;; @desc Adds a new depositor to the list if is not included. Check limits and return custom error before adding it.
 (define-private (depositors-list-with-new-sender (new-depositor principal))
     (let (
         (depositors-list (var-get depositors))
         )
+        (asserts! (or (is-some (index-of depositors-list new-depositor))   ;; already on the list OR
+                      (< (len depositors-list) u50)                        ;; there is room on the list
+                  )
+                  err-too-many-depositors)
         (ok (if (is-none (index-of depositors-list new-depositor))
-            (unwrap! (as-max-len? (append depositors-list tx-sender) u100) err-too-many-depositors)
+            (unwrap-panic (as-max-len? (append depositors-list new-depositor) u50))
             depositors-list
             )
     )
 
     )
-)
+) 
 
 ;; @desc Deposit token. Allows users to send tokens to the smart contract. 
 ;; TODO: assert address deposit token contract principal is equal to the whitelisted deposit token
@@ -134,7 +137,7 @@
                                            (fee (var-get current-stx-fee))
                                            (swapped-amount u0)))
         (var-set total-deposited-balance (+ (var-get total-deposited-balance) amount))
-        (var-set depositors (unwrap-panic (depositors-list-with-new-sender tx-sender)))
+        (var-set depositors (try! (depositors-list-with-new-sender tx-sender)))
 
         (ok true)
     )

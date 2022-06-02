@@ -9,6 +9,8 @@ const defaultDepositAssetContract = 'sip010-token';
 
 const contractPrincipal = (deployer: Account) => `${deployer.address}.${contractName}`;
 
+const maxNumberOfDepositors = 50;
+
 function mintFtTx({ deployer, depositAssetContract = defaultDepositAssetContract, amount, recipientAddress }: { deployer: Account, amount: number, recipientAddress: string, depositAssetContract?: string }) {
     return Tx.contractCall(depositAssetContract, 'mint', [types.uint(amount), types.principal(recipientAddress)], deployer.address);
 }
@@ -23,14 +25,15 @@ function mintFt({ chain, deployer, amount, recipientAddress, depositAssetContrac
 	return { depositAssetContract: depositAssetContractPrincipal, depositAssetId, block };
 }
 
-function mintToSeedAccounts({ chain, deployer, times }: { chain: Chain, deployer: Account, times: number }) {
+function mintToSeedAccounts({ chain, deployer, times = maxNumberOfDepositors, amount = 80 }: { chain: Chain, deployer: Account, times?: number, amount?: number }) {
     let mintTxs:Tx[] = [];
     for(var i = 0; i < times; i++) {
         let recipientAddress = seedAccounts[i].keyInfo.address;
-        let tx = mintFtTx({ deployer, recipientAddress, amount: 80 });
+        let tx = mintFtTx({ deployer, recipientAddress, amount });
         mintTxs.push(tx);
     }
     let block = chain.mineBlock(mintTxs);
+    console.log(`minted ${times} accounts for ${amount} each.`)
     block.receipts.forEach(e => { e.result.expectOk() });
 
 	const ftMintEvent = block.receipts[0].events[0].ft_mint_event;
@@ -111,12 +114,12 @@ Clarinet.test({
 });
 
 Clarinet.test({
-    name: "`deposit` - Can accept 100 deposits from 100 different accounts",
+    name: `\`deposit\` - Can accept ${maxNumberOfDepositors} deposits from ${maxNumberOfDepositors} different accounts`,
     async fn(chain: Chain, accounts: Map<string, Account>) {
 		const deployer = accounts.get('deployer')!;
 
         // mint tokens to seed accounts
-        let times = 100;
+        let times = maxNumberOfDepositors;
         let { depositAssetContract } = mintToSeedAccounts({ chain, deployer, times });
 
         // generate 100 deposits from different accounts
@@ -133,12 +136,12 @@ Clarinet.test({
 });
 
 Clarinet.test({
-    name: "`deposit` - Can accept more than 100 deposits from just 100 different accounts",
+    name: `\`deposit\` - Can accept more than ${maxNumberOfDepositors} deposits from just ${maxNumberOfDepositors} different accounts`,
     async fn(chain: Chain, accounts: Map<string, Account>) {
 		const deployer = accounts.get('deployer')!;
 
         // mint tokens to seed accounts
-        let times = 100;
+        let times = maxNumberOfDepositors;
         let { depositAssetContract } = mintToSeedAccounts({ chain, deployer, times });
 
         // generate 2 deposits on each account
@@ -156,5 +159,28 @@ Clarinet.test({
 
 });
 
+Clarinet.test({
+    name: `\`deposit\` - Cannot accept deposits from more than ${maxNumberOfDepositors} different accounts`,
+    async fn(chain: Chain, accounts: Map<string, Account>) {
+		const deployer = accounts.get('deployer')!;
 
-// TODO `deposit` - Cannot accept deposits from more than 100 different accounts
+        // mint tokens to seed accounts
+        let times = maxNumberOfDepositors + 1;
+        let { depositAssetContract } = mintToSeedAccounts({ chain, deployer, times });
+
+        // generate 100 deposits from different accounts
+        let depositTxs:Tx[] = [];
+        for(var i = 0; i < times; i++) {
+            let recipientAddress = seedAccounts[i].keyInfo.address;
+            let tx = Tx.contractCall(contractName, 'deposit', [types.principal(depositAssetContract), types.uint(50)], recipientAddress);
+            depositTxs.push(tx);
+        }
+        let block = chain.mineBlock(depositTxs);
+
+        assertEquals(block.receipts.length, times);
+
+        // allowed depositors should be ok the after that is an error.
+        block.receipts.slice(0, maxNumberOfDepositors).forEach(e => { e.result.expectOk() });
+        block.receipts[maxNumberOfDepositors].result.expectErr().expectUint(105); // err too many depositors
+    },
+});
