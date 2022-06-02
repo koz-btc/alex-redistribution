@@ -157,7 +157,7 @@
         )
         (map-delete deposits tx-sender)
         (try! (as-contract (transfer-ft deposit-token-contract amount tx-sender depositor)))
-        (ok true)
+        (ok amount)
     )
 )
 

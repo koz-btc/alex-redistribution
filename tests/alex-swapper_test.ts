@@ -256,3 +256,84 @@ Clarinet.test({
         parametersFromChain.result.expectOk().expectUint(70);
     }
 });
+
+// *********************
+// withdraw
+// *********************
+Clarinet.test({
+    name: "`withdraw` - cannot withdraw if it hasn't deposited",
+    async fn(chain: Chain, accounts: Map<string, Account>) {
+		const deployer = accounts.get('deployer')!;
+		const walletA = accounts.get('wallet_1')!;
+		const walletB = accounts.get('wallet_2')!;
+
+        let { depositAssetContractPrincipal } = mintAndDeposit({ chain, deployer, recipient: walletA, mint: 100, deposit: 50 });
+
+        let block = chain.mineBlock([
+            Tx.contractCall(contractName, 'withdraw', [types.principal(depositAssetContractPrincipal)], walletB.address)
+        ]);
+        block.receipts[0].result.expectErr().expectUint(103);
+
+    }
+});
+
+Clarinet.test({
+    name: "`withdraw` - sends back deposited tokens",
+    async fn(chain: Chain, accounts: Map<string, Account>) {
+		const deployer = accounts.get('deployer')!;
+		const walletA = accounts.get('wallet_1')!;
+
+        let { depositAssetContractPrincipal, depositAssetId } = mintAndDeposit({ chain, deployer, recipient: walletA, mint: 100, deposit: 50 });
+
+        let block = chain.mineBlock([
+            Tx.contractCall(contractName, 'withdraw', [types.principal(depositAssetContractPrincipal)], walletA.address)
+        ]);
+        block.receipts[0].result.expectOk().expectUint(50);
+        block.receipts[0].events.expectFungibleTokenTransferEvent(50, contractPrincipal(deployer), walletA.address, depositAssetId);
+    }
+});
+
+// balance should be zero after withdraw
+Clarinet.test({
+    name: "`withdraw` - balance should be zero after withdraw",
+    async fn(chain: Chain, accounts: Map<string, Account>) {
+		const deployer = accounts.get('deployer')!;
+		const walletA = accounts.get('wallet_1')!;
+
+        let { depositAssetContractPrincipal, depositAssetId } = mintAndDeposit({ chain, deployer, recipient: walletA, mint: 100, deposit: 50 });
+
+        let block = chain.mineBlock([
+            Tx.contractCall(contractName, 'withdraw', [types.principal(depositAssetContractPrincipal)], walletA.address)
+        ]);
+        block.receipts[0].result.expectOk().expectUint(50);
+
+        const parametersFromChain = chain.callReadOnlyFn(
+            contractName,
+            "get-deposited-balance",
+            [],
+            walletA.address
+        );
+        parametersFromChain.result.expectOk().expectUint(0);
+    }
+});
+
+// balance should be zero after withdraw
+Clarinet.test({
+    name: "`withdraw` - cannot withdraw once withdrawn",
+    async fn(chain: Chain, accounts: Map<string, Account>) {
+		const deployer = accounts.get('deployer')!;
+		const walletA = accounts.get('wallet_1')!;
+
+        let { depositAssetContractPrincipal, depositAssetId } = mintAndDeposit({ chain, deployer, recipient: walletA, mint: 100, deposit: 50 });
+
+        let block0 = chain.mineBlock([
+            Tx.contractCall(contractName, 'withdraw', [types.principal(depositAssetContractPrincipal)], walletA.address)
+        ]);
+        block0.receipts[0].result.expectOk().expectUint(50);
+
+        let block1 = chain.mineBlock([
+            Tx.contractCall(contractName, 'withdraw', [types.principal(depositAssetContractPrincipal)], walletA.address)
+        ]);
+        block1.receipts[0].result.expectErr().expectUint(103);
+    }
+});
