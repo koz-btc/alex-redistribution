@@ -131,7 +131,7 @@ Clarinet.test({
         let times = maxNumberOfDepositors;
         let { depositAssetContractPrincipal } = mintToSeedAccounts({ chain, deployer, times });
 
-        // generate 100 deposits from different accounts
+        // generate max number of deposits from different accounts
         let depositTxs:Tx[] = [];
         for(var i = 0; i < times; i++) {
             let recipientAddress = seedAccounts[i].keyInfo.address;
@@ -317,7 +317,6 @@ Clarinet.test({
     }
 });
 
-// balance should be zero after withdraw
 Clarinet.test({
     name: "`withdraw` - cannot withdraw once withdrawn",
     async fn(chain: Chain, accounts: Map<string, Account>) {
@@ -337,3 +336,44 @@ Clarinet.test({
         block1.receipts[0].result.expectErr().expectUint(103);
     }
 });
+
+Clarinet.test({
+    name: "`withdraw` - should remove depositors from list, releasing space for new depositors",
+    async fn(chain: Chain, accounts: Map<string, Account>) {
+		const deployer = accounts.get('deployer')!;
+		const walletA = accounts.get('wallet_1')!;
+		const walletB = accounts.get('wallet_2')!;
+		const walletC = accounts.get('wallet_3')!;
+		const walletD = accounts.get('wallet_4')!;
+		const walletE = accounts.get('wallet_5')!;
+
+        let { depositAssetContractPrincipal, depositAssetId } = mintAndDeposit({ chain, deployer, recipient: walletA});
+        mintAndDeposit({ chain, deployer, recipient: walletB });
+        mintAndDeposit({ chain, deployer, recipient: walletC });
+        mintAndDeposit({ chain, deployer, recipient: walletD });
+        mintAndDeposit({ chain, deployer, recipient: walletE });
+
+        let block0 = chain.mineBlock([
+            Tx.contractCall(contractName, 'withdraw', [types.principal(depositAssetContractPrincipal)], walletA.address),
+            Tx.contractCall(contractName, 'withdraw', [types.principal(depositAssetContractPrincipal)], walletB.address),
+            Tx.contractCall(contractName, 'withdraw', [types.principal(depositAssetContractPrincipal)], walletC.address),
+            Tx.contractCall(contractName, 'withdraw', [types.principal(depositAssetContractPrincipal)], walletD.address),
+            Tx.contractCall(contractName, 'withdraw', [types.principal(depositAssetContractPrincipal)], walletE.address),
+        ]);
+        block0.receipts.forEach(e => { e.result.expectOk().expectUint(100); });
+
+        // generate max number of deposits from different accounts
+        let times = maxNumberOfDepositors;
+        mintToSeedAccounts({ chain, deployer, times });
+        let depositTxs:Tx[] = [];
+        for(var i = 0; i < times; i++) {
+            let recipientAddress = seedAccounts[i].keyInfo.address;
+            let tx = Tx.contractCall(contractName, 'deposit', [types.principal(depositAssetContractPrincipal), types.uint(50)], recipientAddress);
+            depositTxs.push(tx);
+        }
+        let block1 = chain.mineBlock(depositTxs);
+        // All deposits should work since the space from other depositors has been released.
+        block1.receipts.forEach(e => { e.result.expectOk() });
+    }
+});
+

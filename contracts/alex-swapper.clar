@@ -54,6 +54,7 @@
 (define-data-var current-stx-fee uint u500000) ;; fee value set in mSTX
 (define-map deposits principal { amount: uint, fee: uint, swapped-amount: uint })
 (define-data-var depositors (list 50 principal) (list))
+(define-data-var removing-depositor principal 'SP000000000000000000002Q6VF78)   ;; Temp data var to initialize the depositor that will be removed
 
 ;; principals needed to call swap-helper method
 (define-map whitelisted-swap-helper-contracts principal bool)
@@ -143,12 +144,10 @@
 )
 
 ;; Withdraw deposited amount.
-;; Check if the sender has actually deposited something.
-;; Send deposited amount back to the depositor.
-;; Remove deposit from map
-;; TODO: Remove depositor from list (list not really implemented yet)
+;; Checks if the sender has actually deposited something.
+;; Sends deposited amount back to the depositor.
+;; Removes deposit from map and depositor from list.
 ;; TODO: Check deposit-token-contract from whitelisted list
-;; TODO: Include test for multiple deposits
 (define-public (withdraw (deposit-token-contract <ft-trait>))
     (let (
         (deposit-info (unwrap! (map-get? deposits tx-sender) err-unknown-depositor))
@@ -156,9 +155,24 @@
         (depositor tx-sender)
         )
         (map-delete deposits tx-sender)
+        (unwrap-panic (remove-depositor depositor))
         (try! (as-contract (transfer-ft deposit-token-contract amount tx-sender depositor)))
         (ok amount)
     )
+)
+
+;; @desc Helper function to remove one depositor from the list.
+(define-private (remove-depositor (depositor principal))
+    (begin
+        (var-set removing-depositor depositor)
+        (var-set depositors (unwrap-panic (as-max-len? (filter remove-withdrawn-depositor (var-get depositors)) u50)))
+        (ok true)
+    )
+)
+
+;; @desc Helper to use with filter to remove one depositor.
+(define-private (remove-withdrawn-depositor (depositor principal))
+    (if (is-eq depositor (var-get removing-depositor)) false true)
 )
 
 ;; @desc Performs swap, exchanges all the deposited tokens and assign proportionally the received tokens to each of the depositors.
